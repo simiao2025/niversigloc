@@ -108,7 +108,7 @@
         <div class="card">
             <div class="auth-header">
                 <div class="logo">Criar Nova Conta</div>
-                <p>Configure seu acesso ao SIGLOC Cloud</p>
+                <p>Use o <b>mesmo e-mail e senha</b> que você usa para acessar o <b>SIGLOC</b>. O sistema os utilizará para realizar a extração automática.</p>
             </div>
             <form onsubmit="event.preventDefault(); register();">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -173,16 +173,9 @@
                     <label>WhatsApp Destino (Resumo)</label>
                     <input type="text" id="dash-phone" placeholder="5563912345678">
                 </div>
-                <div style="border-top: 1px solid var(--border); padding-top: 1.5rem; margin-top: 0.5rem;">
-                    <p style="font-size: 0.75rem; color: var(--primary); margin-bottom: 1rem; font-weight: 600;">🔐 CREDENCIAIS SIGLOC</p>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <input type="text" id="dash-sigloc-email" placeholder="E-mail SIGLOC">
-                        <input type="password" id="dash-sigloc-pass" placeholder="Senha SIGLOC">
-                    </div>
-                </div>
-                <div class="form-group" style="margin-top: 1rem;">
+                <div class="form-group" style="margin-top: 0.5rem;">
                     <label>Mensagem fallback (Dias vazios)</label>
-                    <textarea id="dash-msg-vazio" style="height: 60px; resize: none;"></textarea>
+                    <textarea id="dash-msg-vazio" style="height: 60px; resize: none;" placeholder="Frase para quando não houver aniversariantes..."></textarea>
                 </div>
 
                 <button class="btn btn-primary" onclick="updateProfile()">Salvar Configurações</button>
@@ -299,8 +292,6 @@
             document.getElementById('dash-freq').value = PROFILE.frequencia || 'diario';
             document.getElementById('dash-time').value = PROFILE.hora_execucao || '08:00';
             document.getElementById('dash-phone').value = PROFILE.target_phone || '';
-            document.getElementById('dash-sigloc-email').value = PROFILE.sigloc_email || '';
-            document.getElementById('dash-sigloc-pass').value = PROFILE.sigloc_senha || '';
             document.getElementById('dash-msg-vazio').value = PROFILE.msg_vazio || '';
             
             toggleDashTime();
@@ -310,17 +301,10 @@
 
         async function updateProfile() {
             const payload = {
-                sigloc_email: document.getElementById('dash-sigloc-email').value,
-                sigloc_senha: document.getElementById('dash-sigloc-pass').value,
                 target_phone: document.getElementById('dash-phone').value,
                 hora_execucao: document.getElementById('dash-time').value,
                 frequencia: document.getElementById('dash-freq').value,
-                msg_vazio: document.getElementById('dash-msg-vazio').value,
-                congregacao: PROFILE.congregacao,
-                grupo_sigloc: PROFILE.grupo_sigloc,
-                evo_url: PROFILE.evo_url || '',
-                evo_instance: PROFILE.evo_instance || '',
-                evo_apikey: PROFILE.evo_apikey || ''
+                msg_vazio: document.getElementById('dash-msg-vazio').value
             };
             
             try {

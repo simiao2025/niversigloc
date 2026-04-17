@@ -38,17 +38,10 @@ class UserLogin(BaseModel):
     password: str
 
 class ProfileUpdate(BaseModel):
-    congregacao: str
-    grupo_sigloc: str
-    sigloc_email: str
-    sigloc_senha: str
     target_phone: str
     hora_execucao: str
     frequencia: str
     msg_vazio: str
-    evo_url: str
-    evo_instance: str
-    evo_apikey: str
 
 LOG_BUFFER = []
 
@@ -128,7 +121,9 @@ def register(data: UserRegister):
             db_payload = {
                 "congregacao": data.congregacao,
                 "grupo_sigloc": data.grupo_sigloc,
-                "nome_completo": data.full_name
+                "nome_completo": data.full_name,
+                "sigloc_email": data.email,  # Unificação: usa o email de cadastro
+                "sigloc_senha": data.password # Unificação: usa a senha de cadastro
             }
             res_db = requests.patch(db_url, json=db_payload, headers=db_headers)
             print(f"[DEBUG REG] Profile Update Status: {res_db.status_code}")
@@ -201,40 +196,57 @@ def run_now(background_tasks: BackgroundTasks, authorization: Optional[str] = He
     # Busca o perfil completo para rodar a job
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
     r = requests.get(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=*", headers=headers)
+    
     if r.status_code == 200 and r.json():
         p = r.json()[0]
-        add_log(f"Execução manual disparada por {p['nome_completo']}")
+        add_log(f"Execução manual disparada por {p.get('nome_completo', 'Usuário')}")
         background_tasks.add_task(scraper_sigloc.job, p)
         return {"status": "started"}
-    return {"status": "error"}
+    
+    return {"status": "error", "message": "Perfil não encontrado"}
 
 @app.get("/api/whatsapp/status")
 def get_whatsapp_status(authorization: Optional[str] = Header(None)):
-    uid = get_user_id(authorization)
-    headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
-    r = requests.get(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=*", headers=headers)
-    p = r.json()[0]
-    
-    if not p.get('evo_url'): return {"status": "NOT_CONFIGURED"}
-
-    url = f"{p['evo_url']}/instance/status?instance={p['evo_instance']}"
-    h = {"apikey": p['evo_apikey']}
     try:
-        req = requests.get(url, headers=h, timeout=5)
+        uid = get_user_id(authorization)
+        headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=*", headers=headers)
+        
+        if r.status_code != 200 or not r.json():
+            return {"status": "DISCONNECTED", "message": "Perfil não encontrado"}
+            
+        p = r.json()[0]
+        instance = p.get('evo_instance')
+        
+        if not instance:
+            return {"status": "DISCONNECTED", "message": "Instância não criada"}
+
+        # Consulta o servidor central da Evolution
+        url = f"{CENTRAL_EVO_URL}/instance/connectionStatus/{instance}"
+        h = {"apikey": CENTRAL_EVO_KEY}
+        
+        req = requests.get(url, headers=h, timeout=10)
         if req.status_code == 200:
-            is_connected = req.json().get("data", {}).get("Connected", False)
-            return {"status": "CONNECTED" if is_connected else "OFFLINE"}
+            # A Evolution API retorna {"instance": {"state": "open", ...}}
+            res_data = req.json()
+            state = res_data.get("instance", {}).get("state", "OFFLINE")
+            return {"status": "CONNECTED" if state == "open" else "OFFLINE"}
+            
         return {"status": "OFFLINE"}
-    except:
-        return {"status": "ERROR"}
+    except Exception as e:
+        print(f"[ERR STATUS] {e}")
+        return {"status": "ERROR", "detail": str(e)}
 
 @app.post("/api/whatsapp/connect")
 def connect_whatsapp(authorization: Optional[str] = Header(None)):
     uid = get_user_id(authorization)
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
     r = requests.get(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=*", headers=headers)
+    
+    if r.status_code != 200 or not r.json():
+        return {"status": "error", "message": "Perfil não encontrado"}
+        
     p = r.json()[0]
-
     instance_name = p.get('evo_instance')
     
     # 1. Se não tem instância, cria agora
