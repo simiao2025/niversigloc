@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIGLOC Agent | Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0c10;
+            --surface: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.1);
+            --primary: hsl(210, 100%, 65%);
+            --secondary: hsl(280, 80%, 65%);
+            --accent: hsl(150, 80%, 60%);
+            --text: #f0f2f5;
+            --text-dim: #9aa0a6;
+            --glass: blur(12px);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-image: 
+                radial-gradient(circle at 0% 0%, hsla(210, 100%, 50%, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 100% 100%, hsla(280, 100%, 50%, 0.15) 0%, transparent 40%);
+        }
+
+        header {
+            padding: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -1px;
+        }
+
+        .container {
+            flex: 1;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 2rem 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--surface);
+            backdrop-filter: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 2rem;
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        h2 {
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .status-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-online { background: rgba(50, 255, 150, 0.1); color: var(--accent); }
+        .status-offline { background: rgba(255, 100, 100, 0.1); color: #ff6464; }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+        }
+
+        input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            color: white;
+            font-size: 1rem;
+            outline: none;
+            transition: 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(100, 180, 255, 0.1);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            border-radius: 12px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(to right, var(--primary), #4a9eff);
+            color: #000;
+        }
+
+        .btn-primary:active { transform: scale(0.98); }
+
+        .qr-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        #qr-container {
+            background: white;
+            padding: 1rem;
+            border-radius: 16px;
+            margin: 1rem 0;
+            width: 200px;
+            height: 200px;
+            display: none;
+        }
+
+        #qr-container img { width: 100%; height: 100%; }
+
+        .console {
+            grid-column: span 2;
+            background: #000;
+            border-radius: 16px;
+            padding: 1.5rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+        }
+
+        .log-entry { margin-bottom: 0.25rem; }
+        .log-time { color: var(--text-dim); margin-right: 10px; }
+
+        @media (max-width: 768px) {
+            .container { grid-template-columns: 1fr; }
+            .console { grid-column: span 1; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">SIGLOC <span style="font-weight: 300; opacity: 0.7;">AGENT</span></div>
+        <div id="connection-status" class="status-badge status-offline">Verificando...</div>
+    </header>
+
+    <div class="container">
+        <!-- Config Section -->
+        <div class="card">
+            <h2>⚙️ Configuração</h2>
+            <div class="form-group">
+                <label>Frequência</label>
+                <select id="freq-input" onchange="toggleFrequency()" style="width: 100%; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; color: white; outline: none;">
+                    <option value="diario">Diário (Horário customizado)</option>
+                    <option value="mensal">Mensal (Todo dia 01 às 00:01)</option>
+                </select>
+            </div>
+            <div class="form-group" id="time-container">
+                <label>Horário de Execução</label>
+                <input type="time" id="time-input">
+            </div>
+            <div class="form-group">
+                <label>WhatsApp de Destino</label>
+                <input type="text" id="phone-input" placeholder="Ex: 5563981142553">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label>SIGLOC Email</label>
+                    <input type="text" id="user-input" placeholder="seu@email.com">
+                </div>
+                <div class="form-group">
+                    <label>SIGLOC Senha</label>
+                    <input type="password" id="pass-input" placeholder="******">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Mensagem para dias sem registros</label>
+                <textarea id="msg-vazio-input" style="width: 100%; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; color: white; outline: none; height: 80px; resize: none;"></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="salvarConfig()">Atualizar Configurações</button>
+            <button class="btn" style="background: rgba(255,255,255,0.05); color: white; margin-top: 10px;" onclick="runNow()">
+                🚀 Executar Agora
+            </button>
+        </div>
+
+        <!-- WhatsApp Link Section -->
+        <div class="card qr-card">
+            <h2>🔗 Conexão WhatsApp</h2>
+            <p id="qr-status-text" style="color: var(--text-dim); margin-bottom: 1rem;">
+                Instalação do Evolution Go detectada.
+            </p>
+            <div id="qr-container"></div>
+            <button id="qr-btn" class="btn" style="background: var(--accent); color: #000;" onclick="handleConnection()">
+                Gerar QR Code
+            </button>
+        </div>
+
+        <!-- Consoles Section -->
+        <div class="card console" id="log-list">
+            <div class="log-entry"><span class="log-time">HH:MM</span> Aguardando logs...</div>
+        </div>
+    </div>
+
+    <script>
+        let currentStatus = 'OFFLINE';
+
+        async function fetchConfig() {
+            const r = await fetch('/api/config');
+            const data = await r.json();
+            document.getElementById('freq-input').value = data.frequencia || 'diario';
+            document.getElementById('time-input').value = data.hora_execucao;
+            document.getElementById('phone-input').value = data.destinatario;
+            document.getElementById('user-input').value = data.usuario;
+            document.getElementById('pass-input').value = data.senha;
+            document.getElementById('msg-vazio-input').value = data.msg_vazio || '';
+            toggleFrequency();
+        }
+
+        function toggleFrequency() {
+            const freq = document.getElementById('freq-input').value;
+            const container = document.getElementById('time-container');
+            container.style.display = (freq === 'diario') ? 'block' : 'none';
+        }
+
+        async function salvarConfig() {
+            const payload = {
+                frequencia: document.getElementById('freq-input').value,
+                hora_execucao: document.getElementById('time-input').value,
+                destinatario: document.getElementById('phone-input').value,
+                usuario: document.getElementById('user-input').value,
+                senha: document.getElementById('pass-input').value,
+                msg_vazio: document.getElementById('msg-vazio-input').value
+            };
+            const r = await fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            if(r.ok) alert('Configuração salva!');
+        }
+
+        async function runNow() {
+            await fetch('/api/run-now', {method: 'POST'});
+            alert('A execução foi iniciada em segundo plano.');
+        }
+
+        async function fetchLogs() {
+            const r = await fetch('/api/logs');
+            const data = await r.json();
+            const list = document.getElementById('log-list');
+            list.innerHTML = data.logs.map(log => {
+                const parts = log.split('] ');
+                const time = parts[0].replace('[', '');
+                const msg = parts[1];
+                return `<div class="log-entry"><span class="log-time">${time}</span> ${msg}</div>`;
+            }).join('') || '<div class="log-entry">Aguardando logs...</div>';
+            list.scrollTop = list.scrollHeight;
+        }
+
+        async function checkStatus() {
+            try {
+                const r = await fetch('/api/whatsapp/status');
+                const data = await r.json();
+                const badge = document.getElementById('connection-status');
+                const statusText = document.getElementById('qr-status-text');
+                const btn = document.getElementById('qr-btn');
+                
+                currentStatus = data.status;
+
+                if(data.status === 'CONNECTED') {
+                    badge.className = 'status-badge status-online';
+                    badge.innerText = 'CONECTADO';
+                    statusText.innerText = 'WhatsApp conectado e pronto para uso.';
+                    btn.innerText = 'Desconectar WhatsApp';
+                    btn.style.background = '#ff4d4d'; // Vermelho
+                    btn.style.color = '#fff';
+                    btn.style.display = 'flex';
+                } else {
+                    badge.className = 'status-badge status-offline';
+                    badge.innerText = 'DESCONECTADO';
+                    statusText.innerText = 'Clique abaixo para vincular seu WhatsApp.';
+                    btn.innerText = 'Gerar QR Code';
+                    btn.style.background = 'var(--accent)';
+                    btn.style.color = '#000';
+                    btn.style.display = 'flex';
+                }
+            } catch(e) {}
+        }
+
+        async function handleConnection() {
+            if(currentStatus === 'CONNECTED') {
+                if(confirm('Deseja realmente desconectar o WhatsApp?')) {
+                    await fetch('/api/whatsapp/disconnect', {method: 'POST'});
+                    setTimeout(checkStatus, 1000);
+                }
+            } else {
+                gerarQr();
+            }
+        }
+
+        async function gerarQr() {
+            const btn = document.getElementById('qr-btn');
+            const container = document.getElementById('qr-container');
+            const statusText = document.getElementById('qr-status-text');
+            
+            btn.innerText = 'Gerando...';
+            const r = await fetch('/api/whatsapp/connect', {method: 'POST'});
+            const data = await r.json();
+            
+            if(data.base64) {
+                container.innerHTML = `<img src="${data.base64}" alt="QR Code">`;
+                container.style.display = 'block';
+                statusText.innerText = 'Leia o código com seu WhatsApp';
+                btn.innerText = 'Atualizar QR Code';
+            } else if ((data.error && data.error.includes('already')) || data.message === 'success') {
+                // Se der success mas sem QR, é porque já conectou
+                alert('Conectado com sucesso!');
+                checkStatus();
+            } else {
+                alert('Aviso: ' + (data.error || 'Não foi possível gerar o código. Verifique o servidor.'));
+                btn.innerText = 'Gerar QR Code';
+            }
+        }
+
+        // Init
+        fetchConfig();
+        setInterval(fetchLogs, 3000);
+        setInterval(checkStatus, 5000);
+    </script>
+</body>
+</html>

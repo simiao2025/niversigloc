@@ -1,0 +1,20 @@
+# Ignorar arquivos de configuração sensíveis
+config.json
+
+# Ignorar ambientes virtuais
+venv/
+env/
+.env
+
+# Ignorar arquivos de log e cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignorar capturas de tela de erro (screenshots)
+*.png
+
+# Ignorar pastas de IDEs
+.vscode/
+.idea/

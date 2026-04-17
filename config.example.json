@@ -1,0 +1,14 @@
+{
+  "grupo": "SEU_GRUPO",
+  "usuario": "seu@email.com",
+  "senha": "sua_senha_sigloc",
+  "evo_url": "https://sua-instancia-evolution.com",
+  "evo_instance": "nome_instancia",
+  "evo_apikey": "sua_api_key_aqui",
+  "destinatario": "5500900000000",
+  "hora_execucao": "08:00",
+  "headless": true,
+  "timeout": 20,
+  "frequencia": "diario",
+  "msg_vazio": "Olá! Informamos que hoje não temos aniversariantes ou bodas registrados no sistema SIGLOC. Desejamos a todos um excelente dia! 🌟"
+}
