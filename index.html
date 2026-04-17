@@ -86,15 +86,17 @@
                 <div class="logo" style="font-size: 2rem;">Niarsigloc</div>
                 <p>Entre para gerenciar seus disparos</p>
             </div>
-            <div class="form-group">
-                <label>E-mail</label>
-                <input type="email" id="login-email" placeholder="seu@email.com">
-            </div>
-            <div class="form-group">
-                <label>Senha</label>
-                <input type="password" id="login-pass" placeholder="******">
-            </div>
-            <button class="btn btn-primary" onclick="login()">Entrar no Sistema</button>
+            <form onsubmit="event.preventDefault(); login();">
+                <div class="form-group">
+                    <label>E-mail</label>
+                    <input type="email" id="login-email" placeholder="seu@email.com">
+                </div>
+                <div class="form-group">
+                    <label>Senha</label>
+                    <input type="password" id="login-pass" placeholder="******">
+                </div>
+                <button type="submit" class="btn btn-primary">Entrar no Sistema</button>
+            </form>
             <p style="text-align: center; margin-top: 1.5rem; font-size: 0.875rem; color: var(--text-dim);">
                 Novo por aqui? <a href="#" onclick="showView('register')" style="color: var(--primary); text-decoration: none;">Crie sua conta</a>
             </p>
@@ -108,31 +110,33 @@
                 <div class="logo">Criar Nova Conta</div>
                 <p>Configure seu acesso ao SIGLOC Cloud</p>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                    <label>Nome Completo</label>
-                    <input type="text" id="reg-name" placeholder="Nome">
+            <form onsubmit="event.preventDefault(); register();">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Nome Completo</label>
+                        <input type="text" id="reg-name" placeholder="Nome">
+                    </div>
+                    <div class="form-group">
+                        <label>E-mail</label>
+                        <input type="email" id="reg-email" placeholder="seu@email.com">
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Congregação</label>
+                        <input type="text" id="reg-cong" placeholder="Nome da Congregação">
+                    </div>
+                    <div class="form-group">
+                        <label>Grupo SIGLOC</label>
+                        <input type="text" id="reg-group" placeholder="Ex: admm">
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label>E-mail</label>
-                    <input type="email" id="reg-email" placeholder="seu@email.com">
+                    <label>Crie uma Senha</label>
+                    <input type="password" id="reg-pass" placeholder="Acesso ao Niarsigloc">
                 </div>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                    <label>Congregação</label>
-                    <input type="text" id="reg-cong" placeholder="Nome da Congregação">
-                </div>
-                <div class="form-group">
-                    <label>Grupo SIGLOC</label>
-                    <input type="text" id="reg-group" placeholder="Ex: admm">
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Crie uma Senha</label>
-                <input type="password" id="reg-pass" placeholder="Acesso ao Niarsigloc">
-            </div>
-            <button class="btn btn-primary" onclick="register()">Finalizar Cadastro</button>
+                <button type="submit" class="btn btn-primary">Finalizar Cadastro</button>
+            </form>
             <p style="text-align: center; margin-top: 1.5rem; font-size: 0.875rem; color: var(--text-dim);">
                 Já tem conta? <a href="#" onclick="showView('login')" style="color: var(--primary); text-decoration: none;">Faça login</a>
             </p>
@@ -284,18 +288,20 @@
             if(!res.ok) return logout();
             
             const p = await res.json();
-            PROFILE = p;
+            if(!p || Object.keys(p).length === 0) {
+                console.warn('Perfil vazio ou não encontrado');
+                PROFILE = {};
+            } else {
+                PROFILE = p;
+            }
             
-            // Fill Fields
-            document.getElementById('dash-freq').value = p.frequencia || 'diario';
-            document.getElementById('dash-time').value = p.hora_execucao || '08:00';
-            document.getElementById('dash-phone').value = p.target_phone || '';
-            document.getElementById('dash-sigloc-email').value = p.sigloc_email || '';
-            document.getElementById('dash-sigloc-pass').value = p.sigloc_senha || '';
-            document.getElementById('dash-msg-vazio').value = p.msg_vazio || '';
-            document.getElementById('dash-evo-url').value = p.evo_url || '';
-            document.getElementById('dash-evo-instance').value = p.evo_instance || '';
-            document.getElementById('dash-evo-key').value = p.evo_apikey || '';
+            // Fill Fields (with safety)
+            document.getElementById('dash-freq').value = PROFILE.frequencia || 'diario';
+            document.getElementById('dash-time').value = PROFILE.hora_execucao || '08:00';
+            document.getElementById('dash-phone').value = PROFILE.target_phone || '';
+            document.getElementById('dash-sigloc-email').value = PROFILE.sigloc_email || '';
+            document.getElementById('dash-sigloc-pass').value = PROFILE.sigloc_senha || '';
+            document.getElementById('dash-msg-vazio').value = PROFILE.msg_vazio || '';
             
             toggleDashTime();
             showView('dashboard');

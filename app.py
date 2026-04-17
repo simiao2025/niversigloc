@@ -174,16 +174,14 @@ def get_user_id(authorization: Optional[str] = Header(None)):
     raise HTTPException(status_code=401)
 
 @app.get("/api/profile")
-def get_profile(user_id: str = scraper_sigloc.depends(get_user_id) if hasattr(scraper_sigloc, 'depends') else None):
-    # Fallback simples para o user_id se o depends falhar na sintaxe (ajustando abaixo)
-    pass
-
-@app.get("/api/profile")
 def get_profile(authorization: Optional[str] = Header(None)):
     uid = get_user_id(authorization)
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
     r = requests.get(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=*", headers=headers)
-    return r.json()[0] if r.json() else {}
+    
+    if r.status_code == 200 and r.json():
+        return r.json()[0]
+    return {}
 
 @app.post("/api/profile")
 def update_profile(data: ProfileUpdate, authorization: Optional[str] = Header(None)):
