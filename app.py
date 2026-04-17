@@ -17,6 +17,10 @@ app = FastAPI(title="Niarsigloc Cloud")
 SUPABASE_URL = scraper_sigloc.SUPABASE_URL
 SUPABASE_KEY = scraper_sigloc.SUPABASE_KEY
 
+# CONFIGURAÇÕES EVOLUTION CENTRALIZADA
+CENTRAL_EVO_URL = "https://evolution-api.brasilonthebox.shop"
+CENTRAL_EVO_KEY = "0ec391ec-4732-4934-9ef3-d262a11cb933"
+
 # MODELOS
 class UserRegister(BaseModel):
     email: str
@@ -43,6 +47,14 @@ class ProfileUpdate(BaseModel):
     evo_apikey: str
 
 LOG_BUFFER = []
+
+import re
+import unicodedata
+
+def slugify(text):
+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8')
+    text = re.sub(r'[^\w\s-]', '', text).strip().lower()
+    return re.sub(r'[-\s]+', '-', text)
 
 def add_log(msg):
     global LOG_BUFFER
@@ -193,10 +205,30 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
     r = requests.get(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=*", headers=headers)
     p = r.json()[0]
 
-    url = f"{p['evo_url']}/instance/qr?instance={p['evo_instance']}"
-    h = {"apikey": p['evo_apikey']}
+    instance_name = p.get('evo_instance')
+    
+    # 1. Se não tem instância, cria agora
+    if not instance_name:
+        add_log(f"Criando nova instância para {p['congregacao']}...")
+        instance_name = slugify(p['congregacao'])
+        
+        create_url = f"{CENTRAL_EVO_URL}/instance/create"
+        payload = {
+            "instanceName": instance_name,
+            "token": uid[:12], # Token opcional da instancia
+            "qrcode": True
+        }
+        res_create = requests.post(create_url, json=payload, headers={"apikey": CENTRAL_EVO_KEY})
+        
+        # Salva o nome da instância no perfil do Supabase
+        requests.patch(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}", 
+                       json={"evo_instance": instance_name, "evo_url": CENTRAL_EVO_URL, "evo_apikey": CENTRAL_EVO_KEY}, 
+                       headers=headers)
+        
+    # 2. Busca o QR Code
+    qr_url = f"{CENTRAL_EVO_URL}/instance/qr?instance={instance_name}"
     try:
-        req = requests.get(url, headers=h, timeout=10)
+        req = requests.get(qr_url, headers={"apikey": CENTRAL_EVO_KEY}, timeout=10)
         data = req.json()
         return {"base64": data.get("data", "")}
     except Exception as e:
