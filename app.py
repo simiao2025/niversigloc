@@ -3,7 +3,6 @@ import os
 import threading
 import time
 import requests
-import schedule
 from fastapi import FastAPI, BackgroundTasks, Header, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -144,7 +143,10 @@ def run_scheduler_v2():
             print(f"[ERR SCHED] {e}")
         time.sleep(60)
 
-threading.Thread(target=run_scheduler_v2, daemon=True).start()
+# v3.24: Garantindo que o agendador rode apenas UMA vez (Singleton)
+if not os.environ.get("SCHEDULER_RUNNING"):
+    os.environ["SCHEDULER_RUNNING"] = "true"
+    threading.Thread(target=run_scheduler_v2, daemon=True).start()
 
 def get_profile(uid, token=None):
     try:
@@ -256,7 +258,7 @@ def run_now(authorization: Optional[str] = Header(None)):
     p = get_profile(uid, token=authorization.replace("Bearer ", ""))
     if p:
         add_log(f"🚀 Gatilho manual: {p.get('nome_completo')}")
-        threading.Thread(target=scraper_sigloc.job, args=(p,)).start()
+        threading.Thread(target=scraper_sigloc.job, args=(p, add_log)).start()
         return {"status": "success"}
     raise HTTPException(status_code=404)
 
