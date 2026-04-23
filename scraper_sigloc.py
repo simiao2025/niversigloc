@@ -148,8 +148,9 @@ def enviar_whatsapp(mensagem: str, config):
                 match = next((i for i in data if i.get("name") == instance_name), None)
                 if not match:
                     print(f"[AUTO-ROBOT] Instância {instance_name} não existe. Recriando...")
+                    # v3.18: Adicionado 'token' (obrigatório em algumas versões da Evolution)
                     r_create = requests.post(f"{CENTRAL_EVO_URL}/instance/create", 
-                                          json={"instanceName": instance_name, "qrcode": True}, 
+                                          json={"name": instance_name, "qrcode": True, "token": instance_token}, 
                                           headers=DEFAULT_HEADERS, timeout=10)
                     if r_create.status_code in [200, 201] and config.get('id'):
                         time.sleep(1.5)

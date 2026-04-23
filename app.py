@@ -104,8 +104,11 @@ def sync_evo_data(user_id, instance_name, auth_token=None):
                     headers=db_headers,
                     timeout=10
                 )
+                print(f"[SYNC OK] Token salvo para {instance_name}")
                 add_log(f"✅ Token sincronizado: {instance_name}")
                 return {"token": token, "connected": is_connected}
+            else:
+                print(f"[SYNC AVISO] Instância '{instance_name}' não retornou na lista global.")
     except Exception as e:
         add_log(f"❌ Erro na sincronia: {str(e)}")
         print(f"[SYNC ERRO] {e}")
@@ -187,9 +190,10 @@ def register(data: UserRegister):
             else:
                 print(f"[OK] Perfil criado. Garantindo instância Evolution: {instance_name}")
                 # v3.12: Tenta criar, se já existir (403/409), o sync resolve
+                # v3.18: Adicionado 'token' (obrigatório em algumas versões da Evolution)
                 requests.post(
                     f"{CENTRAL_EVO_URL}/instance/create", 
-                    json={"instanceName": instance_name, "qrcode": True}, 
+                    json={"name": instance_name, "qrcode": True, "token": CENTRAL_EVO_KEY}, 
                     headers=DEFAULT_HEADERS, 
                     timeout=DEFAULT_TIMEOUT
                 )
@@ -278,15 +282,18 @@ def get_whatsapp_status(authorization: Optional[str] = Header(None)):
                 add_log(f"🛠️ Auto-Reparo: Recriando instância {instance_name}...")
                 
                 # Recria a instância
-                requests.post(
+                # v3.18: Adicionado 'token' reutilizando o do banco se possível
+                current_token = p.get("evo_apikey") or CENTRAL_EVO_KEY
+                r_create = requests.post(
                     f"{CENTRAL_EVO_URL}/instance/create",
-                    json={"instanceName": instance_name, "qrcode": True},
+                    json={"name": instance_name, "qrcode": True, "token": current_token},
                     headers=DEFAULT_HEADERS,
                     timeout=DEFAULT_TIMEOUT
                 )
+                print(f"[AUTO-REPAIR] POST create: {r_create.status_code} - {r_create.text}")
                 
-                # Aguarda e sincroniza o novo Token
-                time.sleep(1)
+                # Aguarda e sincroniza o novo Token (Aumentado para 3s)
+                time.sleep(3)
                 sync_evo_data(uid, instance_name, token)
                 return {"status": "disconnected"} # Status inicial de uma nova instância
 
@@ -316,12 +323,13 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
         if sync and sync.get("connected"):
             return {"message": "Já conectado"}
 
-        # Se não existe no servidor, cria
+        # v3.18: Adicionado 'token' reutilizando o do banco
         if not sync:
             print(f"[DEBUG v3.12] Criando instância inexistente: {instance_name}")
+            current_token = p.get("evo_apikey") or CENTRAL_EVO_KEY
             requests.post(
                 f"{CENTRAL_EVO_URL}/instance/create",
-                json={"instanceName": instance_name, "qrcode": True},
+                json={"name": instance_name, "qrcode": True, "token": current_token},
                 headers=DEFAULT_HEADERS,
                 timeout=DEFAULT_TIMEOUT
             )
