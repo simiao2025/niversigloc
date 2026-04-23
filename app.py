@@ -58,8 +58,8 @@ import unicodedata
 
 def slugify(text):
     text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8')
-    text = re.sub(r'[^\w\s-]', '', text).strip().lower()
-    return re.sub(r'[-\s]+', '-', text)
+    text = re.sub(r'[^\w\s]', '', text).strip().lower()
+    return re.sub(r'\s+', '', text)
 
 def add_log(msg):
     global LOG_BUFFER
@@ -279,7 +279,8 @@ def get_whatsapp_status(authorization: Optional[str] = Header(None)):
         if not p or not p.get("evo_instance"):
             return {"status": "disconnected"}
 
-        instance_name = p.get("evo_instance")
+        # v3.25: Sempre limpa o nome da instância (ex: 'Arno 31' -> 'arno31')
+        instance_name = slugify(p.get("evo_instance") or p.get("congregacao") or p.get("nome_completo") or "instancia")
         
         # v3.12: Evolution GO v1.0 - Usamos /instance/all para um check rápido de todos
         r = requests.get(f"{CENTRAL_EVO_URL}/instance/all", headers=DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
@@ -327,7 +328,8 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
         if not p: raise HTTPException(status_code=404)
 
         # v3.20: Nome da instância compartilhado
-        instance_name = p.get("evo_instance") or slugify(p.get("congregacao") or p.get("nome_completo") or "instancia")
+        # v3.25: Sempre limpa o nome da instância (ex: 'Arno 31' -> 'arno31')
+        instance_name = slugify(p.get("evo_instance") or p.get("congregacao") or p.get("nome_completo") or "instancia")
         
         # v3.12: Sincronia Automática (Auto-Repair)
         sync = sync_evo_data(uid, instance_name, token)
@@ -393,7 +395,8 @@ def disconnect_whatsapp(authorization: Optional[str] = Header(None)):
             raise HTTPException(status_code=404, detail="Perfil não encontrado")
 
         # v3.20: Nome da instância compartilhado
-        instance_name = p.get("evo_instance") or slugify(p.get("congregacao") or p.get("nome_completo") or "instancia")
+        # v3.25: Sempre limpa o nome da instância (ex: 'Arno 31' -> 'arno31')
+        instance_name = slugify(p.get("evo_instance") or p.get("congregacao") or p.get("nome_completo") or "instancia")
 
         headers = DEFAULT_HEADERS.copy()
         headers["apikey"] = CENTRAL_EVO_KEY  # ✅ sempre a chave global
