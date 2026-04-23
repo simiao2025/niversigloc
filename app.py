@@ -15,6 +15,7 @@ from cryptography.fernet import Fernet
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from fastapi.middleware.cors import CORSMiddleware
 
 # Carrega variáveis de ambiente
 load_dotenv()
@@ -41,6 +42,16 @@ else:
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# v3.30: Configuração de CORS Reais
+origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # v3.9: Hardening de Conexão
 DEFAULT_TIMEOUT = 12
@@ -245,13 +256,12 @@ def register(data: UserRegister, request: requests.Request = None):
                 "evo_instance": instance_name,
                 "evo_apikey": None # Será preenchido no primeiro sync
             }
-            print(f"[DEBUG v3.10] Enviando perfil para Supabase: {user_id}")
             r_db = requests.post(f"{SUPABASE_URL}/rest/v1/profiles", json=db_payload, headers=db_headers)
             
             if r_db.status_code not in [200, 201]:
-                print(f"[ERRO CRÍTICO DB] STATUS: {r_db.status_code} - RES: {r_db.text}")
+                print(f"[ERRO CRÍTICO DB] STATUS: {r_db.status_code}") # ✅ Sanitizado: Não imprime r_db.text
             else:
-                print(f"[OK] Perfil criado. Garantindo instância Evolution: {instance_name}")
+                print(f"[OK] Perfil criado para {user_id}")
                 # v3.12: Tenta criar, se já existir (403/409), o sync resolve
                 # v3.18: Adicionado 'token' (obrigatório em algumas versões da Evolution)
                 requests.post(
@@ -352,8 +362,12 @@ def get_whatsapp_status(authorization: Optional[str] = Header(None)):
                 add_log(f"🛠️ Auto-Reparo: Recriando instância {instance_name}...")
                 
                 # Recria a instância
-                # v3.18: Adicionado 'token' reutilizando o do banco se possível
-                current_token = p.get("evo_apikey") or CENTRAL_EVO_KEY
+                # v3.30: Exige token do usuário. Se não houver, falha em vez de vazar a master key
+                current_token = p.get("evo_apikey")
+                if not current_token:
+                    add_log(f"❌ Erro: Chave Evolution não encontrada para {instance_name}")
+                    return {"status": "disconnected"}
+                
                 r_create = requests.post(
                     f"{CENTRAL_EVO_URL}/instance/create",
                     json={"name": instance_name, "qrcode": True, "token": current_token},
@@ -398,7 +412,12 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
         # v3.18: Adicionado 'token' reutilizando o do banco
         if not sync:
             print(f"[DEBUG v3.12] Criando instância inexistente: {instance_name}")
-            current_token = p.get("evo_apikey") or CENTRAL_EVO_KEY
+            # v3.30: Proteção de privilégio - Exige chave do usuário
+            current_token = p.get("evo_apikey")
+            if not current_token:
+                add_log(f"❌ Erro: Chave Evolution ausente no perfil.")
+                return {"status": "error", "msg": "Configuração incompleta. Sincronize sua instância primeiro."}
+            
             requests.post(
                 f"{CENTRAL_EVO_URL}/instance/create",
                 json={"name": instance_name, "qrcode": True, "token": current_token},
