@@ -122,15 +122,24 @@ def run_scheduler_v2():
             res = requests.get(f"{SUPABASE_URL}/rest/v1/profiles", headers=headers)
             if res.status_code == 200:
                 profiles = res.json()
-                hoje = datetime.now()
+                # v3.23: Ajuste de Fuso Horário para Brasília (GMT-3)
+                import datetime as dt_module
+                # UTC -> Brasil (Simplificado para evitar dependências extras como pytz)
+                hoje = dt_module.datetime.utcnow() - dt_module.timedelta(hours=3)
                 agora_str = hoje.strftime("%H:%M")
+                
+                # Log de debug a cada hora redonda para não poluir
+                if hoje.minute == 0:
+                    print(f"[RELOGIO] Hora Brasil: {agora_str}")
+
                 for p in profiles:
+                    hora_alvo = p.get('hora_execucao', '08:00')
                     if p['frequencia'] == 'mensal' and hoje.day == 1 and agora_str == '00:01':
-                        add_log(f"Iniciando mensal para: {p.get('nome_completo')}")
-                        threading.Thread(target=scraper_sigloc.job, args=(p,)).start()
-                    elif agora_str == p.get('hora_execucao', '08:00'):
-                        add_log(f"Disparo para: {p.get('nome_completo')}")
-                        threading.Thread(target=scraper_sigloc.job, args=(p,)).start()
+                        add_log(f"📅 Mensal Iniciado: {p.get('nome_completo')}")
+                        threading.Thread(target=scraper_sigloc.job, args=(p, add_log)).start()
+                    elif agora_str == hora_alvo:
+                        add_log(f"⏰ Horário atingido ({hora_alvo}): {p.get('nome_completo')}")
+                        threading.Thread(target=scraper_sigloc.job, args=(p, add_log)).start()
         except Exception as e:
             print(f"[ERR SCHED] {e}")
         time.sleep(60)
