@@ -168,7 +168,7 @@ def register(data: UserRegister):
                 "Content-Type": "application/json",
                 "Prefer": "resolution=merge-duplicates"
             }
-            # v3.10: Gerar nome da instância e incluir no payload
+            # v3.20: Nome da instância compartilhado pela congregação
             instance_name = slugify(data.congregacao or data.full_name or "instancia")
             
             db_payload = {
@@ -315,7 +315,8 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
         p = get_profile(uid, token=token)
         if not p: raise HTTPException(status_code=404)
 
-        instance_name = p.get("evo_instance") or slugify(p.get("congregacao") or p.get("nome_completo"))
+        # v3.20: Nome da instância compartilhado
+        instance_name = p.get("evo_instance") or slugify(p.get("congregacao") or p.get("nome_completo") or "instancia")
         
         # v3.12: Sincronia Automática (Auto-Repair)
         sync = sync_evo_data(uid, instance_name, token)
@@ -380,9 +381,8 @@ def disconnect_whatsapp(authorization: Optional[str] = Header(None)):
         if not p:
             raise HTTPException(status_code=404, detail="Perfil não encontrado")
 
-        instance_name = p.get("evo_instance") or slugify(
-            p.get("congregacao") or p.get("nome_completo") or "instancia"
-        )
+        # v3.20: Nome da instância compartilhado
+        instance_name = p.get("evo_instance") or slugify(p.get("congregacao") or p.get("nome_completo") or "instancia")
 
         headers = DEFAULT_HEADERS.copy()
         headers["apikey"] = CENTRAL_EVO_KEY  # ✅ sempre a chave global
