@@ -5,3 +5,6 @@ requests
 schedule
 webdriver-manager
 pydantic
+python-dotenv
+cryptography
+slowapi

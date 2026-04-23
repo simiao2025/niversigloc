@@ -8,6 +8,7 @@ import unicodedata
 import traceback
 from datetime import datetime
 from dotenv import load_dotenv
+from cryptography.fernet import Fernet
 
 # Carrega variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -27,6 +28,15 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 DB_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
 CENTRAL_EVO_URL = os.getenv("CENTRAL_EVO_URL")
 CENTRAL_EVO_KEY = os.getenv("CENTRAL_EVO_KEY")
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+
+def decrypt_pwd(pwd):
+    if not ENCRYPTION_KEY or not pwd: return pwd
+    try:
+        cipher = Fernet(ENCRYPTION_KEY.encode())
+        return cipher.decrypt(pwd.encode()).decode()
+    except:
+        return pwd # Fallback se não estiver criptografado
 
 def log_debug(msg):
     with open("scraper_debug.log", "a", encoding="utf-8") as f:
@@ -113,8 +123,20 @@ def criar_driver(headless=True):
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1440,1080")
+    
+    # v3.26: Camuflagem Stealth (Oculta automação)
+    opts.add_argument("--disable-blink-features=AutomationControlled")
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option("useAutomationExtension", False)
+
     service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=opts)
+    driver = webdriver.Chrome(service=service, options=opts)
+    
+    # Runtime Stealth
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    })
+    return driver
 
 # v3.9: Hardening de Conexão
 DEFAULT_TIMEOUT = 12
@@ -328,7 +350,9 @@ def job(profile=None, log_func=None):
             WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.NAME, "grupo")))
             driver.find_element(By.NAME, "grupo").send_keys(config.get('grupo_sigloc', ''))
             driver.find_element(By.NAME, "email").send_keys(config.get('sigloc_email', ''))
-            driver.find_element(By.NAME, "senha").send_keys(config.get('sigloc_senha', ''))
+            
+            pwd = decrypt_pwd(config.get('sigloc_senha', ''))
+            driver.find_element(By.NAME, "senha").send_keys(pwd)
             driver.find_element(By.CSS_SELECTOR, "input.btn-success").click()
             
             WebDriverWait(driver, 30).until(lambda d: "index.php" in d.current_url)

@@ -11,6 +11,10 @@ from typing import Optional
 import scraper_sigloc
 from datetime import datetime
 from dotenv import load_dotenv
+from cryptography.fernet import Fernet
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Carrega variáveis de ambiente
 load_dotenv()
@@ -25,6 +29,18 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_K
 # CONFIGURAÇÕES EVOLUTION CENTRALIZADA
 CENTRAL_EVO_URL = os.getenv("CENTRAL_EVO_URL")
 CENTRAL_EVO_KEY = os.getenv("CENTRAL_EVO_KEY")
+
+# CONFIGURAÇÕES DE SEGURANÇA
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    print("[AVISO] ENCRYPTION_KEY não encontrada! As senhas serão salvas sem proteção.")
+    cipher = None
+else:
+    cipher = Fernet(ENCRYPTION_KEY.encode())
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # v3.9: Hardening de Conexão
 DEFAULT_TIMEOUT = 12
@@ -162,8 +178,21 @@ def get_profile(uid, token=None):
     except:
         return None
 
+# HELPER: Criptografia
+def encrypt_pwd(pwd):
+    if not cipher or not pwd: return pwd
+    return cipher.encrypt(pwd.encode()).decode()
+
+def decrypt_pwd(pwd):
+    if not cipher or not pwd: return pwd
+    try:
+        return cipher.decrypt(pwd.encode()).decode()
+    except:
+        return pwd # Fallback se não estiver criptografado
+
 @app.post("/api/auth/register")
-def register(data: UserRegister):
+@limiter.limit("5/minute")
+def register(data: UserRegister, request: requests.Request = None):
     auth_url = f"{SUPABASE_URL}/auth/v1/signup"
     headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
     payload = {"email": data.email, "password": data.password, "data": {"full_name": data.full_name}}
@@ -188,7 +217,7 @@ def register(data: UserRegister):
                 "grupo_sigloc": data.grupo_sigloc,
                 "nome_completo": data.full_name,
                 "sigloc_email": data.email,
-                "sigloc_senha": data.password,
+                "sigloc_senha": encrypt_pwd(data.password), # ✅ Senha criptografada
                 "frequencia": "diario",
                 "hora_execucao": "08:00",
                 "evo_instance": instance_name  # ✅ Salva o nome da instância
@@ -218,7 +247,8 @@ def register(data: UserRegister):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/auth/login")
-def login(data: UserLogin):
+@limiter.limit("10/minute")
+def login(data: UserLogin, request: requests.Request = None):
     auth_url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
     headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
     r = requests.post(auth_url, json=data.model_dump(), headers=headers)
