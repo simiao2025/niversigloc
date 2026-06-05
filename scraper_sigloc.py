@@ -350,8 +350,6 @@ def job(profile=None, log_func=None):
             print(f"[BUG INTERNO] {inner_e}")
             traceback.print_exc()
             enviar_whatsapp(f"⚠️ Erro interno na raspagem: {inner_e}", config)
-        finally:
-            if driver: driver.quit()
 
     except Exception as e:
         print(f"[BUG CRÍTICO] {e}")
