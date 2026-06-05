@@ -13,13 +13,7 @@ from cryptography.fernet import Fernet
 # Carrega variáveis de ambiente do arquivo .env
 load_dotenv()
 
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup
 
 # CONFIGURAÇÕES GLOBAIS
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -117,27 +111,7 @@ def db_has_month_data(user_id):
         print(f"[ERR DB MONTH CHECK] {e}")
     return False
 
-def criar_driver(headless=True):
-    opts = Options()
-    if headless: opts.add_argument("--headless=new")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--window-size=1440,1080")
-    
-    # v3.26: Camuflagem Stealth (Oculta automação)
-    opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-    opts.add_experimental_option("useAutomationExtension", False)
-
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=opts)
-    
-    # Runtime Stealth
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    })
-    return driver
-
+# Driver Removido. Extração nativa via HTTP.
 # v3.9: Hardening de Conexão
 DEFAULT_TIMEOUT = 12
 DEFAULT_HEADERS = {
@@ -247,32 +221,30 @@ def formatar_mensagem(aniv_vivos, aniv_casam, frequencia="mensal", msg_vazio="")
     msg += "\n_Robô SIGLOC Automático_"
     return msg
 
-def extrair_lista(driver, titulo_texto: str):
+def extrair_lista(html, titulo_texto: str):
     print(f"[->] Extraindo: '{titulo_texto}'...")
     resultados = []
     try:
-        # Espera widgets carregarem mas não falha se demorar (limite 30s)
-        time.sleep(5) 
-        widgets = driver.find_elements(By.CSS_SELECTOR, ".widget-box")
+        soup = BeautifulSoup(html, 'html.parser')
+        widgets = soup.find_all(class_="widget-box")
         alvo = None
         for w in widgets:
             if titulo_texto.lower() in w.text.lower():
                 alvo = w
                 break
+        
         if not alvo: 
             print(f"[!] Widget '{titulo_texto}' não apareceu.")
             return []
         
-        linhas = alvo.find_elements(By.CSS_SELECTOR, "table tbody tr")
+        linhas = alvo.select("table tbody tr")
         for tr in linhas:
-            colunas = tr.find_elements(By.TAG_NAME, "td")
+            colunas = tr.find_all("td")
             if len(colunas) >= 4:
-                d_raw = colunas[1].text.strip() # "19" ou "19/04"
+                d_raw = colunas[1].text.strip()
                 n = colunas[2].text.strip()
-                t = colunas[3].text.strip() # "20/04/1961" ou "Tempo"
+                t = colunas[3].text.strip()
                 
-                # v3.15: Normaliza a data para garantir dia e mes
-                # Se d_raw for apenas o dia (ex: "19"), tenta complementar com o mes atual
                 if n and len(n) > 3 and "Nenhum" not in n:
                     dia_final = 0
                     mes_final = datetime.now().month
@@ -284,7 +256,6 @@ def extrair_lista(driver, titulo_texto: str):
                     elif d_raw.isdigit():
                         dia_final = int(d_raw)
                     
-                    # Se falhou no dia, tenta pegar do campo de data completa (t)
                     if dia_final == 0 and "/" in t:
                         partes = t.split('/')
                         if len(partes) >= 2:
@@ -293,7 +264,7 @@ def extrair_lista(driver, titulo_texto: str):
 
                     if dia_final > 0:
                         resultados.append({
-                            "data": d_raw if "/" in d_raw else f"{dia_final}/{mes_final:02d}", 
+                            "data": d_raw if "/" in d_raw else f"{dia_final:02d}/{mes_final:02d}", 
                             "nome": n, 
                             "tempo": t,
                             "dia": dia_final,
@@ -343,26 +314,27 @@ def job(profile=None, log_func=None):
                 report(f"ℹ️ Mês já processado anteriormente. Sem envio extra hoje.")
                 return
             
-        report(f"🔑 Acessando portal SIGLOC para {congregacao}...")
-        driver = criar_driver()
+        report(f"🔑 Acessando portal SIGLOC via HTTP para {congregacao}...")
         try:
-            driver.get("https://www.sigloc.com.br/login/")
-            WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.NAME, "grupo")))
-            driver.find_element(By.NAME, "grupo").send_keys(config.get('grupo_sigloc', ''))
-            driver.find_element(By.NAME, "email").send_keys(config.get('sigloc_email', ''))
+            session = requests.Session()
+            session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"})
             
             pwd = decrypt_pwd(config.get('sigloc_senha', ''))
-            driver.find_element(By.NAME, "senha").send_keys(pwd)
-            driver.find_element(By.CSS_SELECTOR, "input.btn-success").click()
             
-            WebDriverWait(driver, 30).until(lambda d: "index.php" in d.current_url)
+            login_payload = {
+                "grupo": config.get('grupo_sigloc', ''),
+                "email": config.get('sigloc_email', ''),
+                "senha": pwd
+            }
+            
+            session.post("https://www.sigloc.com.br/sigloc/index.php/siglocig/verificarLogin", data=login_payload, timeout=20)
             
             report(f"📄 Extraindo lista de aniversários do Portal...")
-            driver.get("https://www.sigloc.com.br/sigloc/index.php/siglocig")
-            time.sleep(12)
+            res_dash = session.get("https://www.sigloc.com.br/sigloc/index.php/siglocig", timeout=20)
+            html_content = res_dash.text
             
-            aniv_v = extrair_lista(driver, "Aniversariantes do Mês") or []
-            aniv_c = extrair_lista(driver, "Aniversariantes de Casamento") or []
+            aniv_v = extrair_lista(html_content, "Aniversariantes do Mês") or []
+            aniv_c = extrair_lista(html_content, "Aniversariantes de Casamento") or []
             
             if user_id:
                 report(f"💾 Salvando dados extraídos no banco de dados...")
@@ -372,7 +344,7 @@ def job(profile=None, log_func=None):
             report(f"✉️ Preparando e enviando mensagens via WhatsApp...")
             msg = formatar_mensagem(aniv_v, aniv_c, frequencia, config.get('msg_vazio', ''))
             enviar_whatsapp(msg, config)
-            report(f"✅ Robô de raspagem finalizado para {congregacao}.")
+            report(f"✅ Robô HTTP finalizado para {congregacao}.")
             
         except Exception as inner_e:
             print(f"[BUG INTERNO] {inner_e}")
