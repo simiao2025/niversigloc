@@ -445,6 +445,10 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
         for attempt in range(8):
             print(f"[DEBUG connect] Tentativa QR {attempt + 1}")
             try:
+                # Força a instância a iniciar o processo de conexão para gerar o QR Code
+                requests.get(f"{CENTRAL_EVO_URL}/instance/connect/{instance_name}", headers=headers_qr, timeout=DEFAULT_TIMEOUT)
+                time.sleep(1) # Aguarda 1 segundo para a Evolution processar a requisição de conexão
+                
                 r_qr = requests.get(f"{CENTRAL_EVO_URL}/instance/qr", headers=headers_qr, timeout=DEFAULT_TIMEOUT)
                 if r_qr.status_code == 200:
                     qr_data = r_qr.json()
