@@ -460,6 +460,9 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
                         add_log(f"📱 QR Code gerado para {instance_name}")
                         print("[SUCESSO] QR Code capturado!")
                         return {"base64": base64_data}
+                else:
+                    last_qr_data = f"HTTP {r_qr.status_code}: {r_qr.text}"
+                    print(f"[DEBUG QR] {last_qr_data}")
             except Exception as e:
                 print(f"[ERRO QR] {e}")
                 last_qr_data = str(e)
