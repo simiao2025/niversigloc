@@ -140,44 +140,50 @@ def sync_evo_data(user_id, instance_name, auth_token=None):
         print(f"[SYNC ERRO] {e}")
     return None
 
-def run_scheduler_v2():
-    add_log("☁️ Scheduler v2.9 iniciado.")
-    while True:
-        try:
-            headers = {"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"}
-            res = requests.get(f"{SUPABASE_URL}/rest/v1/profiles", headers=headers)
-            if res.status_code == 200:
-                profiles = res.json()
-                # v3.23: Ajuste de Fuso Horário para Brasília (GMT-3)
-                import datetime as dt_module
-                # UTC -> Brasil (Simplificado para evitar dependências extras como pytz)
-                hoje = dt_module.datetime.utcnow() - dt_module.timedelta(hours=3)
-                agora_str = hoje.strftime("%H:%M")
+@app.get("/api/cron")
+def run_cron_job(authorization: Optional[str] = Header(None)):
+    CRON_SECRET = os.getenv("CRON_SECRET")
+    
+    # Se configurou um segredo, valida o header (Vercel envia "Bearer <CRON_SECRET>")
+    if CRON_SECRET:
+        if not authorization or authorization.replace("Bearer ", "") != CRON_SECRET:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+            
+    add_log("☁️ Vercel Cron Job iniciado.")
+    try:
+        headers = {"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"}
+        res = requests.get(f"{SUPABASE_URL}/rest/v1/profiles", headers=headers)
+        if res.status_code == 200:
+            profiles = res.json()
+            import datetime as dt_module
+            hoje = dt_module.datetime.utcnow() - dt_module.timedelta(hours=3)
+            agora_str = hoje.strftime("%H:%M")
+            
+            jobs_to_run = []
+            
+            for p in profiles:
+                hora_alvo = p.get('hora_execucao', '08:00')
+                p['sigloc_senha'] = decrypt_pwd(p.get('sigloc_senha'))
+                p['evo_apikey'] = decrypt_pwd(p.get('evo_apikey'))
                 
-                # Log de debug a cada hora redonda para não poluir
-                if hoje.minute == 0:
-                    print(f"[RELOGIO] Hora Brasil: {agora_str}")
-
-                for p in profiles:
-                    hora_alvo = p.get('hora_execucao', '08:00')
-                    # v3.29: Descriptografa segredos para processamento do robô
-                    p['sigloc_senha'] = decrypt_pwd(p.get('sigloc_senha'))
-                    p['evo_apikey'] = decrypt_pwd(p.get('evo_apikey'))
+                if p['frequencia'] == 'mensal' and hoje.day == 1 and agora_str == '00:01':
+                    add_log(f"📅 Mensal Iniciado: {p.get('nome_completo')}")
+                    jobs_to_run.append(p)
+                elif agora_str == hora_alvo:
+                    add_log(f"⏰ Horário atingido ({hora_alvo}): {p.get('nome_completo')}")
+                    jobs_to_run.append(p)
+            
+            # Roda os trabalhos encontrados de forma síncrona
+            for p in jobs_to_run:
+                try:
+                    scraper_sigloc.job(p, add_log)
+                except Exception as e:
+                    add_log(f"❌ Erro no job para {p.get('nome_completo')}: {e}")
                     
-                    if p['frequencia'] == 'mensal' and hoje.day == 1 and agora_str == '00:01':
-                        add_log(f"📅 Mensal Iniciado: {p.get('nome_completo')}")
-                        threading.Thread(target=scraper_sigloc.job, args=(p, add_log)).start()
-                    elif agora_str == hora_alvo:
-                        add_log(f"⏰ Horário atingido ({hora_alvo}): {p.get('nome_completo')}")
-                        threading.Thread(target=scraper_sigloc.job, args=(p, add_log)).start()
-        except Exception as e:
-            print(f"[ERR SCHED] {e}")
-        time.sleep(60)
-
-# v3.24: Garantindo que o agendador rode apenas UMA vez (Singleton)
-if not os.environ.get("SCHEDULER_RUNNING"):
-    os.environ["SCHEDULER_RUNNING"] = "true"
-    threading.Thread(target=run_scheduler_v2, daemon=True).start()
+        return {"status": "ok", "jobs_run": len(jobs_to_run)}
+    except Exception as e:
+        print(f"[ERR CRON] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Campos seguros para retornar ao Frontend (Oculta senhas e chaves)
 SAFE_FIELDS = "id,congregacao,grupo_sigloc,nome_completo,sigloc_email,frequencia,hora_execucao,target_phone,msg_vazio,evo_instance"
