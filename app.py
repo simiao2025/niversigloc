@@ -185,8 +185,15 @@ SAFE_FIELDS = "id,congregacao,grupo_sigloc,nome_completo,sigloc_email,frequencia
 def get_profile(uid, token=None, full=False):
     try:
         fields = "*" if full else SAFE_FIELDS
-        auth_header = f"Bearer {token}" if token else f"Bearer {SUPABASE_KEY}"
-        headers = {"apikey": SUPABASE_KEY, "Authorization": auth_header}
+        # Se for requisição completa interna (full=True), usamos Service Role para garantir acesso
+        if full and SUPABASE_SERVICE_ROLE_KEY:
+            auth_header = f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"
+            apikey = SUPABASE_SERVICE_ROLE_KEY
+        else:
+            auth_header = f"Bearer {token}" if token else f"Bearer {SUPABASE_KEY}"
+            apikey = SUPABASE_KEY
+            
+        headers = {"apikey": apikey, "Authorization": auth_header}
         url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select={fields}"
         r = requests.get(url, headers=headers, timeout=10)
         if r.status_code == 200:
@@ -434,12 +441,15 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
         if sync and sync.get("token"):
             headers_qr["apikey"] = sync["token"]
         
+        last_qr_data = None
         for attempt in range(8):
             print(f"[DEBUG connect] Tentativa QR {attempt + 1}")
             try:
                 r_qr = requests.get(f"{CENTRAL_EVO_URL}/instance/qr", headers=headers_qr, timeout=DEFAULT_TIMEOUT)
                 if r_qr.status_code == 200:
                     qr_data = r_qr.json()
+                    last_qr_data = qr_data
+                    
                     # Mapeia os diversos formatos possíveis (v1.0 usa data.Qrcode)
                     base64_data = (
                         qr_data.get("data", {}).get("Qrcode") or 
@@ -452,10 +462,11 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
                         return {"base64": base64_data}
             except Exception as e:
                 print(f"[ERRO QR] {e}")
+                last_qr_data = str(e)
             time.sleep(2.5)
 
-        add_log(f"❗ Falha ao obter QR Code após 8 tentativas.")
-        return {"status": "error", "msg": "Não foi possível obter o QR Code. O servidor pode estar processando a instância. Tente novamente em 1 minuto."}
+        add_log(f"❗ Falha ao obter QR Code após 8 tentativas. Resp: {last_qr_data}")
+        return {"status": "error", "msg": f"O servidor Evolution não retornou o QR Code. Resposta recebida: {last_qr_data}"}
 
     except Exception as e:
         print(f"[ERRO connect] {e}")
