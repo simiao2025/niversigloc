@@ -164,7 +164,9 @@ def enviar_whatsapp(mensagem: str, config):
     url = f"{CENTRAL_EVO_URL}/send/text"
     headers = DEFAULT_HEADERS.copy()
     headers["apikey"] = instance_token
-    headers["instance"] = instance_name # v3.12: Necessário para Evolution GO v1.0
+    headers["instance"] = instance_name
+
+
     
     payload = {
         "number": str(dest),
@@ -172,7 +174,7 @@ def enviar_whatsapp(mensagem: str, config):
     }
     
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=DEFAULT_TIMEOUT)
+        response = requests.post(url, json=payload, headers=headers, timeout=60)
         if response.status_code in [200, 201]:
             print("[OK] Envio bem-sucedido.")
             return True

@@ -115,8 +115,11 @@ def sync_evo_data(user_id, instance_name, auth_token=None):
             match = next((i for i in data if i.get("name") == instance_name), None)
             if match:
                 token = match.get("token")
-                is_connected = match.get("connected", False)
-                print(f"[SYNC] Encontrado: {instance_name} | Token: {token[:8]}... | Status: {is_connected}")
+                # Detecta conexão pelo campo 'jid' (JID presente = sessão ativa)
+                # O campo 'connected' pode ser False mesmo quando o WhatsApp está ativo
+                jid = match.get("jid") or match.get("Jid")
+                is_connected = bool(jid) or match.get("connected", False)
+                print(f"[SYNC] Encontrado: {instance_name} | Token: {token[:8]}... | Status: {is_connected} | JID: {jid}")
                 
                 # Atualiza no Supabase
                 db_headers = {
@@ -312,9 +315,14 @@ def get_user_id(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=401)
     token = authorization.replace("Bearer ", "")
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {token}"}
-    r = requests.get(f"{SUPABASE_URL}/auth/v1/user", headers=headers)
-    if r.status_code == 200:
-        return r.json()['id']
+    try:
+        r = requests.get(f"{SUPABASE_URL}/auth/v1/user", headers=headers, timeout=10)
+        if r.status_code == 200:
+            return r.json()['id']
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=503, detail="Supabase timeout")
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="Supabase indisponível")
     raise HTTPException(status_code=401)
 
 @app.get("/api/profile")
@@ -420,7 +428,8 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
         sync = sync_evo_data(uid, instance_name, token)
         
         if sync and sync.get("connected"):
-            return {"message": "Já conectado"}
+            add_log(f"✅ WhatsApp já conectado para {instance_name}")
+            return {"status": "already_connected"}
 
         # v3.18: Adicionado 'token' reutilizando o do banco
         if not sync:
@@ -440,31 +449,57 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
             time.sleep(1)
             sync = sync_evo_data(uid, instance_name, token)
 
-        # ETAPA 3: Buscar QR Code (v1.0 requer Instance Token e header 'instance')
-        headers_qr = DEFAULT_HEADERS.copy()
-        headers_qr["instance"] = instance_name
-        # v3.13: QR endpoint na v1.0 exige o Token da Instância, não a Master Key
+        # ETAPA 3: Gerar QR Code para instância desconectada
+        # Todos os endpoints da instância exigem o token da instância (401 com master key)
+        headers_inst = DEFAULT_HEADERS.copy()
+        headers_inst["instance"] = instance_name
         if sync and sync.get("token"):
-            headers_qr["apikey"] = sync["token"]
-        
+            headers_inst["apikey"] = sync["token"]
+
+        inst_token = str(sync.get("token", "?"))[:12] if sync else "?"
+        print(f"[DEBUG QR-FLOW] Instância: {instance_name} | Token: {inst_token}...")
+
+        # Passo 1: Logout para resetar o estado de sessão (necessário para gerar novo QR)
+        print(f"[DEBUG QR-FLOW] DELETE /instance/logout...")
+        r_logout = requests.delete(
+            f"{CENTRAL_EVO_URL}/instance/logout",
+            headers=headers_inst,
+            timeout=DEFAULT_TIMEOUT
+        )
+        print(f"[DEBUG QR-FLOW] logout → {r_logout.status_code} | {r_logout.text[:200]}")
+        time.sleep(2)
+
+        # Passo 2: Reconnect — gera novo QR Code no Evo GO
+        print(f"[DEBUG QR-FLOW] POST /instance/reconnect...")
+        r_reconnect = requests.post(
+            f"{CENTRAL_EVO_URL}/instance/reconnect",
+            headers=headers_inst,
+            timeout=DEFAULT_TIMEOUT
+        )
+        print(f"[DEBUG QR-FLOW] reconnect → {r_reconnect.status_code} | {r_reconnect.text[:200]}")
+        time.sleep(5)  # Aguarda o Evo GO gerar o QR internamente
+
+        # Passo 3: Pollar GET /instance/qr até obter o base64
         last_qr_data = None
-        for attempt in range(8):
-            print(f"[DEBUG connect] Tentativa QR {attempt + 1}")
+        for attempt in range(10):
+            print(f"[DEBUG QR-FLOW] Tentativa QR {attempt + 1}/10")
             try:
-                # Força a instância a iniciar o processo de conexão para gerar o QR Code
-                requests.get(f"{CENTRAL_EVO_URL}/instance/connect/{instance_name}", headers=headers_qr, timeout=DEFAULT_TIMEOUT)
-                time.sleep(1) # Aguarda 1 segundo para a Evolution processar a requisição de conexão
-                
-                r_qr = requests.get(f"{CENTRAL_EVO_URL}/instance/qr", headers=headers_qr, timeout=DEFAULT_TIMEOUT)
+                r_qr = requests.get(
+                    f"{CENTRAL_EVO_URL}/instance/qr",
+                    headers=headers_inst,
+                    timeout=DEFAULT_TIMEOUT
+                )
+                print(f"[DEBUG QR-FLOW] qr → {r_qr.status_code} | {r_qr.text[:200]}")
                 if r_qr.status_code == 200:
                     qr_data = r_qr.json()
                     last_qr_data = qr_data
-                    
-                    # Mapeia os diversos formatos possíveis (v1.0 usa data.Qrcode)
+                    # Evo GO v1.0 retorna: data.Qrcode ou data.qrcode ou base64
                     base64_data = (
-                        qr_data.get("data", {}).get("Qrcode") or 
-                        qr_data.get("qrcode", {}).get("base64") or 
-                        qr_data.get("base64")
+                        qr_data.get("data", {}).get("Qrcode") or
+                        qr_data.get("data", {}).get("qrcode") or
+                        qr_data.get("qrcode", {}).get("base64") or
+                        qr_data.get("base64") or
+                        qr_data.get("Qrcode")
                     )
                     if base64_data:
                         add_log(f"📱 QR Code gerado para {instance_name}")
@@ -472,14 +507,15 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
                         return {"base64": base64_data}
                 else:
                     last_qr_data = f"HTTP {r_qr.status_code}: {r_qr.text}"
-                    print(f"[DEBUG QR] {last_qr_data}")
             except Exception as e:
                 print(f"[ERRO QR] {e}")
                 last_qr_data = str(e)
-            time.sleep(2.5)
+            time.sleep(3)
 
-        add_log(f"❗ Falha ao obter QR Code após 8 tentativas. Resp: {last_qr_data}")
-        return {"status": "error", "msg": f"O servidor Evolution não retornou o QR Code. Resposta recebida: {last_qr_data}"}
+        add_log(f"❗ Falha ao obter QR Code após 10 tentativas. Última resp: {last_qr_data}")
+        return {"status": "error", "msg": f"O servidor Evolution não retornou o QR Code. Resposta: {last_qr_data}"}
+
+
 
     except Exception as e:
         print(f"[ERRO connect] {e}")
@@ -502,10 +538,12 @@ def disconnect_whatsapp(authorization: Optional[str] = Header(None)):
         headers = DEFAULT_HEADERS.copy()
         headers["apikey"] = CENTRAL_EVO_KEY  # ✅ sempre a chave global
 
-        print(f"[DEBUG disconnect] Deletando: {instance_name}")
+        print(f"[DEBUG disconnect] Desconectando: {instance_name}")
 
-        r = requests.delete(
-            f"{CENTRAL_EVO_URL}/instance/{instance_name}",  # ✅ sem /delete/ na URL
+        # v4.0: Corrigido — usa POST /instance/disconnect (desconecta sessão, mantém instância)
+        # Para deletar permanentemente usar: DELETE /instance/delete/{instanceId}
+        r = requests.post(
+            f"{CENTRAL_EVO_URL}/instance/disconnect",
             headers=headers,
             timeout=DEFAULT_TIMEOUT,
         )
@@ -517,9 +555,10 @@ def disconnect_whatsapp(authorization: Optional[str] = Header(None)):
             "Authorization": authorization,
             "Content-Type": "application/json",
         }
+        # Limpa apenas evo_apikey (mantém evo_instance pois a instância ainda existe no servidor)
         requests.patch(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}",
-            json={"evo_instance": None},
+            json={"evo_apikey": None},
             headers=db_headers,
             timeout=10,
         )

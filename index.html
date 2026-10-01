@@ -246,11 +246,12 @@
                     container.innerHTML = `<img src="${data.base64}" style="width:250px; border-radius:10px; border: 5px solid white;">`;
                     document.getElementById('qr-status-text').innerText = 'Aponte o WhatsApp para o QR Code acima.';
                     btn.innerText = 'Atualizar QR Code';
-                } else if(data.message === 'Já conectado') {
-                    alert('Sua instância já está conectada!');
+                } else if(data.status === 'already_connected' || data.message === 'Já conectado') {
+                    container.style.display = 'none';
+                    document.getElementById('qr-status-text').innerText = '✅ Seu WhatsApp está vinculado e pronto!';
                     checkStatus();
                 } else {
-                    container.innerHTML = `<p style="color:red">Erro: ${data.msg || 'Tente novamente.'}</p>`;
+                    container.innerHTML = `<p style="color:red">Erro: ${data.msg || data.status || 'Tente novamente.'}</p>`;
                     btn.innerText = 'Tentar Novamente';
                 }
             } catch(e) {
