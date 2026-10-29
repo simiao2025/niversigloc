@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 import scraper_sigloc
+import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
@@ -115,10 +116,9 @@ def sync_evo_data(user_id, instance_name, auth_token=None):
             match = next((i for i in data if i.get("name") == instance_name), None)
             if match:
                 token = match.get("token")
-                # Detecta conexão pelo campo 'jid' (JID presente = sessão ativa)
-                # O campo 'connected' pode ser False mesmo quando o WhatsApp está ativo
                 jid = match.get("jid") or match.get("Jid")
-                is_connected = bool(jid) or match.get("connected", False)
+                # No Evolution GO, o campo 'connected' é o indicador real da sessão ativa
+                is_connected = bool(match.get("connected", False))
                 print(f"[SYNC] Encontrado: {instance_name} | Token: {token[:8]}... | Status: {is_connected} | JID: {jid}")
                 
                 # Atualiza no Supabase
@@ -383,22 +383,18 @@ def get_whatsapp_status(authorization: Optional[str] = Header(None)):
                 add_log(f"🛠️ Auto-Reparo: Recriando instância {instance_name}...")
                 
                 # Recria a instância
-                # v3.30: Exige token do usuário. Se não houver, falha em vez de vazar a master key
-                current_token = p.get("evo_apikey")
-                if not current_token:
-                    add_log(f"❌ Erro: Chave Evolution não encontrada para {instance_name}")
-                    return {"status": "disconnected"}
+                current_token = p.get("evo_apikey") or str(uuid.uuid4())[:16]
                 
                 r_create = requests.post(
                     f"{CENTRAL_EVO_URL}/instance/create",
-                    json={"name": instance_name, "qrcode": True, "token": current_token},
+                    json={"name": instance_name, "token": current_token},
                     headers=DEFAULT_HEADERS,
                     timeout=DEFAULT_TIMEOUT
                 )
                 print(f"[AUTO-REPAIR] POST create: {r_create.status_code} - {r_create.text}")
                 
-                # Aguarda e sincroniza o novo Token (Aumentado para 3s)
-                time.sleep(3)
+                # Aguarda e sincroniza o novo Token
+                time.sleep(2)
                 sync_evo_data(uid, instance_name, token)
                 return {"status": "disconnected"} # Status inicial de uma nova instância
 
@@ -431,26 +427,21 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
             add_log(f"✅ WhatsApp já conectado para {instance_name}")
             return {"status": "already_connected"}
 
-        # v3.18: Adicionado 'token' reutilizando o do banco
+        # v3.18: Se a instância não existir, cria no servidor Evolution
         if not sync:
             print(f"[DEBUG v3.12] Criando instância inexistente: {instance_name}")
-            # v3.30: Proteção de privilégio - Exige chave do usuário
-            current_token = p.get("evo_apikey")
-            if not current_token:
-                add_log(f"❌ Erro: Chave Evolution ausente no perfil.")
-                return {"status": "error", "msg": "Configuração incompleta. Sincronize sua instância primeiro."}
+            current_token = p.get("evo_apikey") or str(uuid.uuid4())[:16]
             
             requests.post(
                 f"{CENTRAL_EVO_URL}/instance/create",
-                json={"name": instance_name, "qrcode": True, "token": current_token},
+                json={"name": instance_name, "token": current_token},
                 headers=DEFAULT_HEADERS,
                 timeout=DEFAULT_TIMEOUT
             )
-            time.sleep(1)
+            time.sleep(2)
             sync = sync_evo_data(uid, instance_name, token)
 
         # ETAPA 3: Gerar QR Code para instância desconectada
-        # Todos os endpoints da instância exigem o token da instância (401 com master key)
         headers_inst = DEFAULT_HEADERS.copy()
         headers_inst["instance"] = instance_name
         if sync and sync.get("token"):
@@ -459,27 +450,18 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
         inst_token = str(sync.get("token", "?"))[:12] if sync else "?"
         print(f"[DEBUG QR-FLOW] Instância: {instance_name} | Token: {inst_token}...")
 
-        # Passo 1: Logout para resetar o estado de sessão (necessário para gerar novo QR)
-        print(f"[DEBUG QR-FLOW] DELETE /instance/logout...")
-        r_logout = requests.delete(
-            f"{CENTRAL_EVO_URL}/instance/logout",
+        # Passo 1: Solicita conexão com subscrição de QR Code no Evolution GO
+        print(f"[DEBUG QR-FLOW] POST /instance/connect...")
+        r_connect = requests.post(
+            f"{CENTRAL_EVO_URL}/instance/connect",
+            json={"subscribe": ["MESSAGE", "QRCODE", "CONNECTION"]},
             headers=headers_inst,
             timeout=DEFAULT_TIMEOUT
         )
-        print(f"[DEBUG QR-FLOW] logout → {r_logout.status_code} | {r_logout.text[:200]}")
+        print(f"[DEBUG QR-FLOW] connect → {r_connect.status_code} | {r_connect.text[:200]}")
         time.sleep(2)
 
-        # Passo 2: Reconnect — gera novo QR Code no Evo GO
-        print(f"[DEBUG QR-FLOW] POST /instance/reconnect...")
-        r_reconnect = requests.post(
-            f"{CENTRAL_EVO_URL}/instance/reconnect",
-            headers=headers_inst,
-            timeout=DEFAULT_TIMEOUT
-        )
-        print(f"[DEBUG QR-FLOW] reconnect → {r_reconnect.status_code} | {r_reconnect.text[:200]}")
-        time.sleep(5)  # Aguarda o Evo GO gerar o QR internamente
-
-        # Passo 3: Pollar GET /instance/qr até obter o base64
+        # Passo 2: Pollar GET /instance/qr até obter o base64
         last_qr_data = None
         for attempt in range(10):
             print(f"[DEBUG QR-FLOW] Tentativa QR {attempt + 1}/10")
@@ -493,15 +475,17 @@ def connect_whatsapp(authorization: Optional[str] = Header(None)):
                 if r_qr.status_code == 200:
                     qr_data = r_qr.json()
                     last_qr_data = qr_data
-                    # Evo GO v1.0 retorna: data.Qrcode ou data.qrcode ou base64
+                    # Evo GO v1.0 retorna: data.qrcode ou data.Qrcode ou base64
                     base64_data = (
-                        qr_data.get("data", {}).get("Qrcode") or
                         qr_data.get("data", {}).get("qrcode") or
+                        qr_data.get("data", {}).get("Qrcode") or
                         qr_data.get("qrcode", {}).get("base64") or
                         qr_data.get("base64") or
                         qr_data.get("Qrcode")
                     )
                     if base64_data:
+                        if not base64_data.startswith("data:"):
+                            base64_data = f"data:image/png;base64,{base64_data}"
                         add_log(f"📱 QR Code gerado para {instance_name}")
                         print("[SUCESSO] QR Code capturado!")
                         return {"base64": base64_data}
